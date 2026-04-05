@@ -13,6 +13,7 @@ import { DB } from "./db.js";
 import { Search } from "./search.js";
 import { Journal } from "./journal.js";
 import { Orchestrator } from "./orchestrator.js";
+import { Heartbeat } from "./heartbeat.js";
 
 export interface ShellResult {
   stdout: string;
@@ -27,18 +28,23 @@ export class Cell {
   readonly db: DB;
   readonly search: Search;
   readonly journal: Journal;
+  readonly heartbeat: Heartbeat;
   private dir: string;
   private orchestrators = new Map<string, Orchestrator>();
 
-  constructor(cellId: string, baseDir: string = "/cells") {
+  constructor(
+    cellId: string,
+    opts?: { baseDir?: string; controlPlaneUrl?: string; heartbeatInterval?: number }
+  ) {
     this.id = cellId;
-    this.dir = join(baseDir, cellId);
+    this.dir = join(opts?.baseDir ?? "/cells", cellId);
     mkdirSync(this.dir, { recursive: true });
 
     this.store = new Store(join(this.dir, "work"));
     this.db = new DB(join(this.dir, "data"));
     this.search = new Search(join(this.dir, "index"));
     this.journal = new Journal(join(this.dir, "journal"));
+    this.heartbeat = new Heartbeat(cellId, opts?.controlPlaneUrl, opts?.heartbeatInterval);
   }
 
   get workDir(): string {

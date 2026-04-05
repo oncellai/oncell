@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from oncell.db import DB
+from oncell.heartbeat import Heartbeat
 from oncell.journal import Journal
 from oncell.orchestrator import Orchestrator
 from oncell.search import Search
@@ -42,7 +43,13 @@ class ShellResult:
 class Cell:
     """An isolated compute cell. One per customer."""
 
-    def __init__(self, cell_id: str, base_dir: str | Path = "/cells"):
+    def __init__(
+        self,
+        cell_id: str,
+        base_dir: str | Path = "/cells",
+        control_plane_url: str | None = None,
+        heartbeat_interval: int = 60,
+    ):
         self.id = cell_id
         self._dir = Path(base_dir) / cell_id
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -51,6 +58,7 @@ class Cell:
         self.db = DB(self._dir / "data")
         self.search = Search(self._dir / "index")
         self.journal = Journal(self._dir / "journal")
+        self.heartbeat = Heartbeat(cell_id, control_plane_url, heartbeat_interval)
         self._orchestrators: dict[str, Orchestrator] = {}
 
     @property
