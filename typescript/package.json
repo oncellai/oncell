@@ -1,6 +1,6 @@
 {
   "name": "@oncell/sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OnCell SDK — REST API client for per-customer isolated compute",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,7 +19,14 @@
   "files": [
     "dist"
   ],
-  "keywords": ["oncell", "ai", "agents", "compute", "cells", "isolated"],
+  "keywords": [
+    "oncell",
+    "ai",
+    "agents",
+    "compute",
+    "cells",
+    "isolated"
+  ],
   "license": "Apache-2.0",
   "author": "Anup Singh",
   "homepage": "https://oncell.ai",

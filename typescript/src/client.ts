@@ -46,6 +46,10 @@ export interface CellCreateOptions {
   customerId: string;
   tier?: string;
   permanent?: boolean;
+  /** Agent code to run inside the cell. */
+  agent?: string;
+  /** Secrets injected as env vars (never written to disk). */
+  secrets?: Record<string, string>;
 }
 
 /** File entry returned from listFiles. */
@@ -140,13 +144,16 @@ class CellsResource {
     return json as T;
   }
 
-  /** Create a new cell. */
+  /** Create a new cell. Optionally pass agent code and secrets. */
   async create(opts: CellCreateOptions): Promise<Cell> {
-    const raw = await this.request<Record<string, unknown>>("POST", "/api/v1/cells", {
+    const body: Record<string, unknown> = {
       customer_id: opts.customerId,
       tier: opts.tier,
       permanent: opts.permanent,
-    });
+    };
+    if (opts.agent) body.agent = opts.agent;
+    if (opts.secrets) body.secrets = opts.secrets;
+    const raw = await this.request<Record<string, unknown>>("POST", "/api/v1/cells", body);
     return toCell(raw);
   }
 
@@ -237,14 +244,37 @@ class CellsResource {
   // ─── Generic request ───
 
   /**
-   * Send a generic request to the cell's agent runtime.
-   * This calls POST /api/v1/cells/:cell_id/request with { method, params }.
+   * Send a request to the cell's agent runtime via cell ID.
+   * Calls POST /api/v1/cells/:cell_id/request with { method, params }.
    */
-  async request_<T = unknown>(cellId: string, method: string, params?: Record<string, unknown>): Promise<T> {
+  async sendRequest<T = unknown>(cellId: string, method: string, params?: Record<string, unknown>): Promise<T> {
     return this.request<T>("POST", `/api/v1/cells/${encodeURIComponent(cellId)}/request`, {
       method,
       params: params ?? {},
     });
+  }
+
+  /**
+   * Send a request to an agent by customer ID. Auto-creates/resumes the cell.
+   * Calls POST /api/v1/agents/:method with X-Customer-ID header.
+   * Returns the raw Response (supports both JSON and SSE streaming).
+   */
+  async agentRequest(customerId: string, method: string, params?: Record<string, unknown>): Promise<Response> {
+    const url = `${this.baseUrl}/api/v1/agents/${encodeURIComponent(method)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+        "X-Customer-ID": customerId,
+      },
+      body: JSON.stringify(params ?? {}),
+    });
+    if (!res.ok && !res.headers.get("content-type")?.includes("text/event-stream")) {
+      const body = await res.json().catch(() => ({}));
+      throw new OnCellError(res.status, body);
+    }
+    return res;
   }
 }
 
