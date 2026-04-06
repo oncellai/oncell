@@ -21,7 +21,7 @@ class Store:
     """Filesystem operations scoped to a cell directory."""
 
     def __init__(self, path: str | Path):
-        self._root = Path(path)
+        self._root = Path(path).resolve()
         self._root.mkdir(parents=True, exist_ok=True)
 
     @property
