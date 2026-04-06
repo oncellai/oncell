@@ -21,11 +21,7 @@ Go to [Dashboard → API Keys](https://oncell.ai/dashboard/keys) and create a ke
 ### 4. Install the SDK
 
 ```bash
-# TypeScript
 npm install oncell
-
-# Python
-pip install oncell
 ```
 
 ### 5. Create a cell with an agent
@@ -315,33 +311,6 @@ const tiers = await oncell.tiers();
 ```
 
 Cells auto-pause after 15 min idle (paused rate). Permanent cells stay active.
-
----
-
-## Python
-
-```python
-from oncell import OnCell
-
-oncell = OnCell(api_key="oncell_sk_...")
-
-cell = oncell.cells.create(
-    customer_id="user-123",
-    tier="starter",
-    agent="""
-module.exports = {
-    greet(ctx, params) {
-        ctx.store.write("hello.txt", "Hello " + params.name);
-        return { greeting: "Hello " + params.name };
-    }
-};
-""",
-)
-
-result = oncell.cells.request(cell.id, "greet", {"name": "world"})
-print(result)  # {"greeting": "Hello world"}
-print(cell.preview_url)
-```
 
 ---
 
