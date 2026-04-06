@@ -145,7 +145,67 @@ ctx.cellId                          Cell ID
 ctx.workDir                         Working directory path
 ```
 
+ctx.stream(data)                    Send SSE event to client (enables streaming mode)
+
 All local operations (store, db, search, shell) are **0ms latency** — no network involved.
+
+---
+
+## Streaming
+
+Agent methods support three response modes — the cell runtime auto-detects which one:
+
+### Sync — return a value
+```javascript
+module.exports = {
+  greet(ctx, params) {
+    return { hello: params.name };
+  }
+};
+```
+→ JSON response
+
+### Async — return a promise
+```javascript
+module.exports = {
+  async analyze(ctx, params) {
+    const result = await ctx.shellAsync("npm test");
+    return { passed: result.exitCode === 0 };
+  }
+};
+```
+→ JSON response (awaited)
+
+### Stream — use ctx.stream() during execution
+```javascript
+module.exports = {
+  async generate(ctx, params) {
+    // Stream LLM response back to client in real-time
+    const res = await ctx.fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "google/gemini-2.5-flash", messages: [...], stream: true }),
+    });
+
+    let code = "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    // Each ctx.stream() call sends an SSE event to the client immediately
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      // parse SSE chunks from LLM...
+      ctx.stream({ text: chunk });  // sent to client in real-time
+      code += chunk;
+    }
+
+    ctx.store.write("index.html", code);
+    return { code, files: ctx.store.list() };  // sent as final SSE event
+  }
+};
+```
+→ SSE stream, then final JSON event with `{ done: true, ...result }`
 
 ---
 
