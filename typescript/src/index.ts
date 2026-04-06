@@ -1,3 +1,4 @@
+export { Agent } from "./agent.js";
 export { Cell, type ShellResult } from "./cell.js";
 export { Store } from "./store.js";
 export { DB } from "./db.js";

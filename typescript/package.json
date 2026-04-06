@@ -8,12 +8,15 @@
     "build": "tsc",
     "test": "vitest"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "license": "Apache-2.0",
   "author": "Anup Singh",
   "homepage": "https://oncell.ai",
   "repository": "https://github.com/anup-singhai/oncell",
   "devDependencies": {
+    "@types/node": "^25.5.2",
     "typescript": "^5.5",
     "vitest": "^2.0"
   }

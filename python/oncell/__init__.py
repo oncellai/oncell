@@ -5,8 +5,10 @@ from oncell.search import Search
 from oncell.journal import Journal
 from oncell.orchestrator import Orchestrator, Step, StepResult, TaskStatus
 from oncell.heartbeat import Heartbeat
+from oncell.agent import Agent
 
 __all__ = [
+    "Agent",
     "Cell", "ShellResult",
     "Store", "DB", "Search", "Journal",
     "Orchestrator", "Step", "StepResult", "TaskStatus",
