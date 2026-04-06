@@ -1,20 +1,35 @@
 {
   "name": "oncell",
-  "version": "0.1.0",
-  "description": "Per-customer isolated compute for AI agents",
+  "version": "0.2.0",
+  "description": "OnCell SDK — REST API client for per-customer isolated compute",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
-    "test": "vitest"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "files": [
     "dist"
   ],
+  "keywords": ["oncell", "ai", "agents", "compute", "cells", "isolated"],
   "license": "Apache-2.0",
   "author": "Anup Singh",
   "homepage": "https://oncell.ai",
-  "repository": "https://github.com/anup-singhai/oncell",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oncellai/oncell"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "devDependencies": {
     "@types/node": "^25.5.2",
     "typescript": "^5.5",

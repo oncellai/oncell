@@ -1,128 +1,150 @@
 # oncell
 
-Per-customer isolated compute for AI agents. Python and TypeScript SDKs.
+REST API client for [oncell.ai](https://oncell.ai) — per-customer isolated compute for AI agents.
 
-Each customer gets their own **cell** — compute, storage, database, vector search, and durable orchestration co-located on one machine. No network hops. No shared infrastructure.
-
-[oncell.ai](https://oncell.ai) &middot; [Docs](https://oncell.ai/docs) &middot; [Blog](https://oncell.ai/blog)
+Create, manage, and interact with cells from your application. Each cell is an isolated compute environment with its own filesystem, database, and agent runtime.
 
 ## Install
 
 ```bash
+# TypeScript / Node.js
+npm install oncell
+
 # Python
 pip install oncell
-
-# TypeScript
-npm install oncell
 ```
 
 ## Quick Start
 
-### Python
-
-```python
-from oncell import Cell, Step
-
-cell = Cell("acme-corp")
-
-# Shell — run commands, durable by default
-result = await cell.shell("git clone https://github.com/acme/app /work")
-
-# Store — read/write files
-await cell.store.write("config.json", '{"theme": "dark"}')
-content = await cell.store.read("src/app.ts")
-
-# DB — key-value + raw SQL
-await cell.db.set("last_task", "add dark mode")
-task = await cell.db.get("last_task")
-
-# Search — vector search, local index
-await cell.search.index("/work/src", glob="**/*.ts")
-results = await cell.search.query("auth middleware", top_k=10)
-
-# Orchestrator — durable multi-step workflows
-orch = cell.orchestrator("deploy")
-
-# Sync
-result = await orch.run([
-    Step("search", lambda: cell.search.query("auth")),
-    Step("edit",   lambda ctx: cell.shell(ctx["search"][0]["content"])),
-    Step("test",   lambda: cell.shell("npm test")),
-])
-
-# Async (fire and forget)
-task_id = await orch.spawn([...])
-status = orch.status(task_id)
-
-# Streaming
-async for event in orch.stream([
-    Step("search", lambda: cell.search.query("auth")),
-    Step("test",   lambda: cell.shell("npm test")),
-]):
-    print(event)  # {"step": "search", "status": "done", "progress": 0.5}
-```
-
 ### TypeScript
 
 ```typescript
-import { Cell } from "oncell";
+import { OnCell } from "oncell";
 
-const cell = new Cell("acme-corp");
+const oncell = new OnCell({ apiKey: "oncell_sk_..." });
 
-// Shell
-const result = await cell.shell("git clone https://github.com/acme/app /work");
+// Create a cell for a customer
+const cell = await oncell.cells.create({ customerId: "user-1", tier: "standard" });
+console.log(cell.previewUrl); // https://dev--user-1.cells.oncell.ai
 
-// Store
-await cell.store.write("config.json", '{"theme": "dark"}');
-const content = await cell.store.read("src/app.ts");
+// Write files to the cell
+await oncell.cells.writeFile(cell.id, "index.html", "<h1>Hello</h1>");
 
-// DB
-await cell.db.set("last_task", "add dark mode");
-const task = await cell.db.get("last_task");
+// Read files
+const { content } = await oncell.cells.readFile(cell.id, "index.html");
 
-// Search
-await cell.search.index("/work/src", { glob: "**/*.ts" });
-const results = await cell.search.query("auth middleware", 10);
+// Key-value database
+await oncell.cells.dbSet(cell.id, "theme", "dark");
+const { value } = await oncell.cells.dbGet(cell.id, "theme");
 
-// Orchestrator
-const orch = cell.orchestrator("deploy");
+// Send requests to the agent runtime
+const result = await oncell.cells.request_(cell.id, "generate", {
+  instruction: "build a landing page",
+});
 
-// Sync
-const ctx = await orch.run([
-  { name: "search", fn: () => cell.search.query("auth") },
-  { name: "test",   fn: () => cell.shell("npm test") },
-]);
+// Lifecycle
+await oncell.cells.pause(cell.id);
+await oncell.cells.resume(cell.id);
+await oncell.cells.setPermanent(cell.id, true);
+await oncell.cells.delete(cell.id);
 
-// Async
-const taskId = await orch.spawn([...]);
-const status = orch.status(taskId);
-
-// Streaming
-for await (const event of orch.stream([...])) {
-  console.log(event);
-}
+// List cells and pricing tiers
+const cells = await oncell.cells.list();
+const tiers = await oncell.tiers();
 ```
 
-## Primitives
+### Python
 
-Six primitives. Each works standalone. Together, they share the same NVMe — no glue code.
+```python
+from oncell import OnCell
 
-| Primitive | What | Python | TypeScript |
-|-----------|------|--------|------------|
-| **Shell** | Run commands | `cell.shell(cmd)` | `cell.shell(cmd)` |
-| **Store** | Read/write files | `cell.store.read(path)` | `cell.store.read(path)` |
-| **DB** | Key-value + SQL | `cell.db.get(key)` | `cell.db.get(key)` |
-| **Search** | Vector search | `cell.search.query(q)` | `cell.search.query(q)` |
-| **Journal** | Durable checkpoints | `cell.journal` | `cell.journal` |
-| **Orchestrator** | Multi-step workflows | `cell.orchestrator(name)` | `cell.orchestrator(name)` |
+oncell = OnCell(api_key="oncell_sk_...")
 
-## Why OnCell
+# Create a cell
+cell = await oncell.cells.create(customer_id="user-1", tier="standard")
+print(cell.preview_url)  # https://dev--user-1.cells.oncell.ai
 
-- **No network hops.** All primitives share the same NVMe. 7 GB/s reads. Sub-10ms search.
-- **Physical isolation.** Each cell is a gVisor sandbox. Cell A cannot access Cell B.
-- **Durable execution.** Every shell command is journaled. Crash → resume from last step.
-- **Pause economics.** Idle cells cost $0.001/hr. Wake in 200ms. NVMe state preserved.
-- **Zero integration.** The NVMe is the integration layer. No duct tape.
+# Write files
+await oncell.cells.write_file(cell.id, "index.html", "<h1>Hello</h1>")
+
+# Read files
+result = await oncell.cells.read_file(cell.id, "index.html")
+print(result["content"])
+
+# Key-value database
+await oncell.cells.db_set(cell.id, "theme", "dark")
+result = await oncell.cells.db_get(cell.id, "theme")
+print(result["value"])
+
+# Generic agent request
+result = await oncell.cells.request(cell.id, "generate", {
+    "instruction": "build a landing page",
+})
+
+# Lifecycle
+await oncell.cells.pause(cell.id)
+await oncell.cells.resume(cell.id)
+await oncell.cells.set_permanent(cell.id, True)
+await oncell.cells.delete(cell.id)
+
+# List cells and tiers
+cells = await oncell.cells.list()
+tiers = await oncell.tiers()
+```
+
+Synchronous methods are also available (Python only):
+
+```python
+cell = oncell.cells.create_sync(customer_id="user-1")
+oncell.cells.write_file_sync(cell.id, "index.html", "<h1>Hello</h1>")
+```
+
+## API Reference
+
+### `OnCell(options)`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `apiKey` / `api_key` | string | `ONCELL_API_KEY` env | Your API key |
+| `baseUrl` / `base_url` | string | `https://api.oncell.ai` | API base URL |
+
+### Cell Methods
+
+| Method | Description |
+|--------|-------------|
+| `cells.create({ customerId, tier?, permanent? })` | Create a new cell |
+| `cells.list()` | List all cells |
+| `cells.get(cellId)` | Get a cell by ID |
+| `cells.pause(cellId)` | Pause a cell |
+| `cells.resume(cellId)` | Resume a paused cell |
+| `cells.delete(cellId)` | Delete a cell |
+| `cells.setPermanent(cellId, permanent)` | Set permanent flag |
+| `cells.writeFile(cellId, path, content)` | Write a file |
+| `cells.readFile(cellId, path)` | Read a file |
+| `cells.listFiles(cellId, dir?)` | List files |
+| `cells.dbSet(cellId, key, value)` | Set a DB key |
+| `cells.dbGet(cellId, key)` | Get a DB value |
+| `cells.request_(cellId, method, params?)` | Generic agent request |
+| `tiers()` | List pricing tiers |
+
+### Cell Object
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | string | Cell ID |
+| `customerId` / `customer_id` | string | Customer ID |
+| `tier` | string | Pricing tier |
+| `status` | string | `active` or `paused` |
+| `permanent` | boolean | Whether the cell persists when idle |
+| `previewUrl` / `preview_url` | string | `https://{cell-id}.cells.oncell.ai` |
+
+## Pricing Tiers
+
+| Tier | Spec | Active | Paused |
+|------|------|--------|--------|
+| Starter | 1 CPU, 1 GB | $0.10/hr | $0.003/hr |
+| Standard | 2 CPU, 4 GB | $0.25/hr | $0.005/hr |
+| Performance | 4 CPU, 8 GB | $0.50/hr | $0.01/hr |
 
 ## License
 
