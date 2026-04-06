@@ -1,5 +1,5 @@
 {
-  "name": "oncell",
+  "name": "@oncell/sdk",
   "version": "0.2.0",
   "description": "OnCell SDK — REST API client for per-customer isolated compute",
   "main": "dist/index.js",
