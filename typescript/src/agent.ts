@@ -3,7 +3,7 @@
  *
  * Developers subclass Agent to define their coding agent:
  *
- *     import { Agent, Cell } from "oncell";
+ *     import { Agent, Cell } from "@oncell/sdk";
  *
  *     class MyAgent extends Agent {
  *       static cell = { compute: "2cpu-4gb", storage: "10gb" };

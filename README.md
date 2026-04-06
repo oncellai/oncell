@@ -21,13 +21,13 @@ Go to [Dashboard → API Keys](https://oncell.ai/dashboard/keys) and create a ke
 ### 4. Install the SDK
 
 ```bash
-npm install oncell
+npm install @oncell/sdk
 ```
 
 ### 5. Create a cell with an agent
 
 ```typescript
-import { OnCell } from "oncell";
+import { OnCell } from "@oncell/sdk";
 
 const oncell = new OnCell({ apiKey: "oncell_sk_..." });
 

@@ -2,7 +2,7 @@
  * OnCell REST API client.
  *
  * Usage:
- *   import { OnCell } from "oncell";
+ *   import { OnCell } from "@oncell/sdk";
  *   const oncell = new OnCell({ apiKey: "oncell_sk_..." });
  *   const cell = await oncell.cells.create({ customerId: "user-1" });
  *   console.log(cell.previewUrl);
