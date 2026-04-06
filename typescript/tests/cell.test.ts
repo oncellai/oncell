@@ -124,7 +124,7 @@ describe("db", () => {
 // ─── Search ───
 
 describe("search", () => {
-  it.todo("indexes and queries files — fix walkFiles glob matching", async () => {
+  it("indexes and queries files", async () => {
     const c = cell();
     // Write files via store (resolves to workDir/src/...)
     await c.store.write("src/auth.py", "def authenticate(user, password): pass");

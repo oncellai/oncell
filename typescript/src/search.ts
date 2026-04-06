@@ -152,7 +152,11 @@ function walkFiles(dir: string): string[] {
 }
 
 function matchGlob(path: string, pattern: string): boolean {
+  // **/* matches everything — fast path
+  if (pattern === "**/*") return true;
+
   const regex = pattern
+    .replace(/\./g, "\\.")
     .replace(/\*\*/g, "{{GLOBSTAR}}")
     .replace(/\*/g, "[^/]*")
     .replace(/\{\{GLOBSTAR\}\}/g, ".*");
