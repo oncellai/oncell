@@ -224,16 +224,26 @@ describe("cells.dbGet", () => {
 
 // ─── Generic request ───
 
-describe("cells.request_", () => {
+describe("cells.sendRequest", () => {
   it("sends arbitrary method and params", async () => {
     const c = client();
     pushMock(200, { result: "generated" });
 
-    const result = await c.cells.request_("c1", "generate", { instruction: "build a page" });
+    const result = await c.cells.sendRequest("c1", "generate", { instruction: "build a page" });
     expect(result).toEqual({ result: "generated" });
     const body = JSON.parse(fetchCalls[0].init.body as string);
     expect(body.method).toBe("generate");
     expect(body.params.instruction).toBe("build a page");
+  });
+});
+
+describe("cells.request (alias)", () => {
+  it("delegates to sendRequest", async () => {
+    const c = client();
+    pushMock(200, { result: "generated" });
+
+    const result = await c.cells.request("c1", "generate", { instruction: "build a page" });
+    expect(result).toEqual({ result: "generated" });
   });
 });
 

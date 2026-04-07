@@ -2,9 +2,4 @@
 typescript/node_modules/
 typescript/dist/
 typescript/.next/
-python/__pycache__/
-python/.pytest_cache/
-python/.venv/
-python/oncell/__pycache__/
-python/tests/__pycache__/
 *.pyc

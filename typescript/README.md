@@ -1,37 +1,23 @@
-# oncell
+# @oncell/sdk
 
-Per-customer isolated compute for AI agents. [oncell.ai](https://oncell.ai)
+TypeScript SDK for [oncell.ai](https://oncell.ai) — per-customer isolated compute for AI agents.
 
 Each cell is an isolated execution environment with filesystem, database, search, and a live preview URL. Your agent code runs inside the cell with direct local access — no network hops.
 
-## Getting Started
-
-### 1. Sign up
-
-Go to [oncell.ai](https://oncell.ai) and create an account (GitHub, Google, or email).
-
-### 2. Add credits
-
-Go to [Dashboard > Billing](https://oncell.ai/dashboard/billing) and add at least $5 in credits. Minimum $5 balance required to use the platform.
-
-### 3. Create an API key
-
-Go to [Dashboard > API Keys](https://oncell.ai/dashboard/keys) and create a key. Copy it — it's shown only once.
-
-### 4. Install the SDK
+## Install
 
 ```bash
 npm install @oncell/sdk
 ```
 
-### 5. Create a cell with an agent
+## Quick Start
 
 ```typescript
 import { OnCell } from "@oncell/sdk";
 
 const oncell = new OnCell({ apiKey: "oncell_sk_..." });
 
-// Create a cell with your agent code inline
+// Create a cell with agent code and secrets
 const cell = await oncell.cells.create({
   customerId: "user-123",
   tier: "starter",        // starter | standard | performance
@@ -40,10 +26,8 @@ const cell = await oncell.cells.create({
   agent: `
     module.exports = {
       async generate(ctx, params) {
-        // Search existing code for context (local — 0ms)
         const context = ctx.search.query(params.instruction);
 
-        // Call LLM (only network call)
         const res = await ctx.fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -61,13 +45,9 @@ const cell = await oncell.cells.create({
         const data = await res.json();
         const code = data.choices[0].message.content;
 
-        // Write to cell storage (local NVMe — 0ms)
         ctx.store.write("index.html", code);
-
-        // Log the action (local — 0ms)
         ctx.journal.step("generate", "Wrote index.html", { lines: code.split("\\n").length });
 
-        // Save conversation (local DB — 0ms)
         const history = ctx.db.get("history") || [];
         history.push({ instruction: params.instruction, timestamp: new Date().toISOString() });
         ctx.db.set("history", history);
@@ -82,37 +62,21 @@ console.log(cell.previewUrl);
 // https://dev-abc--user-123.cells.oncell.ai
 ```
 
-### 6. Send requests to the agent
+## Send Requests to the Agent
 
 ```typescript
 const result = await oncell.cells.request(cell.id, "generate", {
   instruction: "Build a pricing page with 3 tiers"
 });
-
-console.log(result);
-// { code: "<!DOCTYPE html>...", files: ["index.html"] }
 ```
 
-The agent ran inside the cell. `ctx.store.write()`, `ctx.db.set()`, `ctx.search.query()` — all local, no network. Only the LLM call went over the network.
+The agent ran inside the cell. `ctx.store.write()`, `ctx.db.set()`, `ctx.search.query()` are all local with 0ms latency. Only the LLM call goes over the network.
 
-### 7. View the preview
-
-Open `cell.previewUrl` in a browser — the cell serves `index.html` automatically.
-
-### 8. Send follow-up requests
-
-```typescript
-const result2 = await oncell.cells.request(cell.id, "generate", {
-  instruction: "Make it dark mode"
-});
-// Agent reads existing code from ctx.store, edits it, writes it back
-```
-
----
+Open `cell.previewUrl` in a browser to see the live preview.
 
 ## Agent Context (ctx)
 
-Your agent code receives a `ctx` object with direct local access to cell primitives:
+Agent code receives a `ctx` object with direct local access to cell primitives:
 
 ```
 ctx.store                           Filesystem (NVMe)
@@ -139,15 +103,12 @@ ctx.journal                         Workflow log
 ctx.shell(cmd) -> {stdout, stderr, exitCode}
 ctx.shellAsync(cmd) -> Promise<{stdout, stderr, exitCode}>
 ctx.fetch                           HTTP (for LLM calls, webhooks, etc.)
+ctx.stream(data)                    Send SSE event to client
 ctx.cellId                          Cell ID
 ctx.workDir                         Working directory path
 ```
 
-ctx.stream(data)                    Send SSE event to client (enables streaming mode)
-
 All local operations (store, db, search, shell) are **0ms latency** — no network involved.
-
----
 
 ## Secrets
 
@@ -161,13 +122,17 @@ const cell = await oncell.cells.create({
     OPENROUTER_API_KEY: "sk-or-...",
     GITHUB_TOKEN: "ghp_...",
   },
-  agent: agentCode,
+  agent: `
+    module.exports = {
+      async generate(ctx, params) {
+        // Access secrets via process.env
+        const apiKey = process.env.OPENROUTER_API_KEY;
+        // ...
+      }
+    };
+  `,
 });
 ```
-
-Inside the agent: `process.env.OPENROUTER_API_KEY`
-
----
 
 ## Cell Images
 
@@ -198,13 +163,121 @@ The `image` field is optional. If omitted, cells use the `"default"` image (bare
 - Images are cached on the host's NVMe after the first pull — subsequent cell creates using the same image are instant
 - Custom images can be uploaded by developers (coming soon)
 
----
+## Cell Lifecycle
+
+```
+create -> ACTIVE -> idle 15 min -> PAUSED -> resume -> ACTIVE
+                                     |
+                                   delete -> DELETED
+```
+
+- **Active**: running, billed at active rate
+- **Paused**: compute freed, data persists on NVMe, billed at paused rate
+- **Resume**: 200ms from NVMe cache, 5-30s if restored from S3
+
+## Cell Management
+
+```typescript
+// List cells
+const cells = await oncell.cells.list();
+
+// Get cell details
+const cell = await oncell.cells.get("dev-abc--user-123");
+
+// Pause (frees compute, data persists)
+await oncell.cells.pause(cell.id);
+
+// Resume (200ms from NVMe cache)
+await oncell.cells.resume(cell.id);
+
+// Delete
+await oncell.cells.delete(cell.id);
+```
+
+## Custom Domains
+
+Add custom domains to your cells so users can access them at your own domain instead of the default `.cells.oncell.ai` URL.
+
+```typescript
+// Add a custom domain to a cell
+const domain = await oncell.domains.add("myapp.com", cell.id);
+console.log(domain.dnsInstructions);
+// { record_type: "A", name: "@", values: ["x.x.x.x", "y.y.y.y"] }
+
+// Verify DNS configuration
+const result = await oncell.domains.verify("myapp.com");
+if (result.dnsVerified) {
+  // Provision SSL certificate
+  const ssl = await oncell.domains.provisionSsl("myapp.com");
+  console.log(ssl.sslStatus); // "active"
+}
+
+// List domains
+const domains = await oncell.domains.list();
+
+// Reassign domain to a different cell
+await oncell.domains.reassign("myapp.com", newCell.id);
+
+// Delete domain
+await oncell.domains.delete("myapp.com");
+```
+
+## Permanent Cells
+
+Normal cells auto-pause after 15 minutes idle. Permanent cells never pause and auto-restart on crash.
+
+```typescript
+const cell = await oncell.cells.create({
+  customerId: "production-worker",
+  tier: "standard",
+  permanent: true,
+  agent: workerAgentCode,
+});
+
+// Toggle permanent on existing cell
+await oncell.cells.setPermanent(cell.id, true);
+```
+
+## File Operations
+
+Read and write files on the cell's filesystem without going through the agent:
+
+```typescript
+await oncell.cells.writeFile(cell.id, "data/report.json", jsonContent);
+const { content } = await oncell.cells.readFile(cell.id, "data/report.json");
+const { files } = await oncell.cells.listFiles(cell.id);
+```
+
+## Database Operations
+
+Read and write key-value pairs in the cell's database without going through the agent:
+
+```typescript
+await oncell.cells.dbSet(cell.id, "theme", "dark");
+const { value } = await oncell.cells.dbGet(cell.id, "theme");
+```
+
+## Agent Request (auto-create/resume)
+
+Send a request by customer ID instead of cell ID. The cell is auto-created or resumed as needed. Returns the raw `Response` object (supports both JSON and SSE streaming).
+
+```typescript
+const response = await oncell.cells.agentRequest("user-123", "generate", {
+  instruction: "Build a pricing page"
+});
+
+// JSON response
+const result = await response.json();
+
+// Or SSE streaming
+const reader = response.body.getReader();
+```
 
 ## Streaming
 
-Agent methods support three response modes — the cell runtime auto-detects which one:
+Agent methods support three response modes. The cell runtime auto-detects which one:
 
-### Sync — return a value
+**Sync** -- return a value:
 ```javascript
 module.exports = {
   greet(ctx, params) {
@@ -213,7 +286,7 @@ module.exports = {
 };
 ```
 
-### Async — return a promise
+**Async** -- return a promise:
 ```javascript
 module.exports = {
   async analyze(ctx, params) {
@@ -223,7 +296,7 @@ module.exports = {
 };
 ```
 
-### Stream — use ctx.stream() during execution
+**Stream** -- use `ctx.stream()` during execution:
 ```javascript
 module.exports = {
   async generate(ctx, params) {
@@ -245,125 +318,10 @@ module.exports = {
     }
 
     ctx.store.write("index.html", code);
-    return { code, files: ctx.store.list() };  // sent as final SSE event
+    return { code, files: ctx.store.list() };  // final SSE event
   }
 };
 ```
-
----
-
-## Cell Management
-
-```typescript
-// List cells
-const cells = await oncell.cells.list();
-
-// Get cell details
-const cell = await oncell.cells.get("dev-abc--user-123");
-
-// Pause (frees compute, data persists, billed at paused rate)
-await oncell.cells.pause(cell.id);
-
-// Resume (200ms from NVMe cache, 5-30s from S3)
-await oncell.cells.resume(cell.id);
-
-// Delete
-await oncell.cells.delete(cell.id);
-```
-
----
-
-## Cell Lifecycle
-
-```
-create -> ACTIVE -> idle 15 min -> PAUSED -> resume -> ACTIVE
-                                     |
-                                   delete -> DELETED
-```
-
-- Cells auto-pause after 15 minutes of inactivity
-- Paused: compute freed, NVMe data persists, billed at paused rate
-- Resume: 200ms from NVMe cache, 5-30s if restored from S3
-
----
-
-## Permanent Cells
-
-Normal cells pause after 15 minutes of inactivity. Permanent cells never pause and auto-restart on crash.
-
-```typescript
-// Create a permanent cell
-const cell = await oncell.cells.create({
-  customerId: "production-worker",
-  tier: "standard",
-  image: "nextjs",     // optional — cell image
-  permanent: true,
-  agent: workerAgentCode,
-});
-
-// Toggle permanent on existing cell
-await oncell.cells.setPermanent(cell.id, true);
-```
-
----
-
-## File Operations (without agent)
-
-You can also use cells as pure storage without an agent:
-
-```typescript
-await oncell.cells.writeFile(cell.id, "data/report.json", jsonContent);
-const { content } = await oncell.cells.readFile(cell.id, "data/report.json");
-const { files } = await oncell.cells.listFiles(cell.id);
-```
-
----
-
-## Database Operations (without agent)
-
-```typescript
-await oncell.cells.dbSet(cell.id, "theme", "dark");
-const { value } = await oncell.cells.dbGet(cell.id, "theme");
-```
-
----
-
-## Observability
-
-### Journal (agent workflow)
-
-```typescript
-// In your agent code:
-ctx.journal.step("plan", "Planning 3-step build");
-ctx.journal.step("llm", "Called Gemini", { tokens: 1200, duration: 2100 });
-ctx.journal.step("write", "Wrote app/page.tsx", { lines: 200 });
-ctx.journal.step("done", "Build complete");
-
-// Read from your app:
-const { entries } = await oncell.cells.request(cell.id, "journal", {});
-```
-
-### Logs (runtime output)
-
-```typescript
-// In your agent code:
-console.log("Processing request...");
-console.error("LLM timeout, retrying...");
-
-// Read from your app:
-const { lines } = await oncell.cells.request(cell.id, "logs", { lines: 100 });
-```
-
-### Metrics
-
-```typescript
-const metrics = await oncell.cells.request(cell.id, "metrics", {});
-// { requests: 142, errors: 3, avg_latency: 12, uptime: 3600 }
-```
-
-All observability data is also visible in the [Dashboard](https://oncell.ai/dashboard) — click any cell to see Workflow, Logs, and Metrics tabs.
-
----
 
 ## Pricing
 
@@ -381,13 +339,56 @@ const tiers = await oncell.tiers();
 
 Cells auto-pause after 15 min idle (paused rate). Permanent cells stay active.
 
----
+## API Reference
+
+### `new OnCell(opts)`
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `apiKey` | `string` | `ONCELL_API_KEY` env var | API key (`oncell_sk_...`) |
+| `baseUrl` | `string` | `https://api.oncell.ai` | API base URL |
+
+### `oncell.cells`
+
+| Method | Description |
+|---|---|
+| `create(opts)` | Create a cell with optional agent code, image, and secrets |
+| `list()` | List all cells |
+| `get(cellId)` | Get a single cell |
+| `pause(cellId)` | Pause a cell |
+| `resume(cellId)` | Resume a paused cell |
+| `delete(cellId)` | Delete a cell |
+| `setPermanent(cellId, bool)` | Toggle permanent flag |
+| `writeFile(cellId, path, content)` | Write a file to the cell |
+| `readFile(cellId, path)` | Read a file from the cell |
+| `listFiles(cellId, dir?)` | List files in the cell |
+| `dbSet(cellId, key, value)` | Set a DB key-value pair |
+| `dbGet(cellId, key)` | Get a DB value by key |
+| `sendRequest(cellId, method, params?)` | Send a request to the agent |
+| `request(cellId, method, params?)` | Alias for sendRequest |
+| `agentRequest(customerId, method, params?)` | Send request by customer ID (auto-create/resume) |
+
+### `oncell.domains`
+
+| Method | Description |
+|---|---|
+| `add(domain, cellId)` | Add a custom domain to a cell |
+| `list()` | List all custom domains |
+| `get(domain)` | Get a single domain |
+| `verify(domain)` | Verify DNS configuration |
+| `provisionSsl(domain)` | Provision SSL certificate |
+| `reassign(domain, cellId)` | Reassign domain to a different cell |
+| `delete(domain)` | Delete a custom domain |
+
+### `oncell.tiers()`
+
+Returns available pricing tiers.
 
 ## Links
 
-- [oncell.ai](https://oncell.ai) — sign up
-- [Dashboard](https://oncell.ai/dashboard) — manage cells, keys, billing
-- [Demo](https://github.com/oncellai/oncell-demo-agent) — coding agent built on oncell
+- [oncell.ai](https://oncell.ai) -- sign up
+- [Dashboard](https://oncell.ai/dashboard) -- manage cells, keys, billing
+- [Demo](https://github.com/oncellai/oncell-demo-agent) -- coding agent built on OnCell
 - [Architecture](https://github.com/oncellai/oncell/blob/main/ARCHITECTURE.md)
 
 ## License
