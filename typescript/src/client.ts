@@ -271,6 +271,97 @@ class CellsResource {
     return { value: raw.value };
   }
 
+  // ─── Entity CRUD (structured data with auto-IDs, filtering, pagination) ───
+
+  /** Query options for dbQuery. */
+
+  /**
+   * Create a record in an entity collection.
+   * Returns the created record with auto-generated `id` and `createdAt`.
+   *
+   * @example
+   * const user = await oncell.cells.dbCreate(cellId, "users", { name: "Alice", email: "alice@example.com" });
+   * // → { id: "usr_abc123", name: "Alice", email: "alice@example.com", createdAt: "2026-04-07T..." }
+   */
+  async dbCreate(cellId: string, entity: string, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this._fetch<Record<string, unknown>>(
+      "POST",
+      `/api/v1/cells/${encodeURIComponent(cellId)}/request`,
+      { method: "db_create", params: { entity, data } },
+    );
+  }
+
+  /**
+   * Query records from an entity collection with optional filtering and pagination.
+   *
+   * @example
+   * const users = await oncell.cells.dbQuery(cellId, "users", { where: { role: "admin" }, limit: 10 });
+   * // → [{ id: "usr_abc", name: "Alice", role: "admin" }, ...]
+   */
+  async dbQuery(
+    cellId: string,
+    entity: string,
+    options?: { where?: Record<string, unknown>; limit?: number; offset?: number; orderBy?: string; order?: "asc" | "desc" },
+  ): Promise<Record<string, unknown>[]> {
+    const raw = await this._fetch<{ items: Record<string, unknown>[] }>(
+      "POST",
+      `/api/v1/cells/${encodeURIComponent(cellId)}/request`,
+      { method: "db_query", params: { entity, ...options } },
+    );
+    return raw.items ?? (raw as unknown as Record<string, unknown>[]);
+  }
+
+  /**
+   * Get all records from an entity collection.
+   *
+   * @example
+   * const allUsers = await oncell.cells.dbGetAll(cellId, "users");
+   */
+  async dbGetAll(cellId: string, entity: string): Promise<Record<string, unknown>[]> {
+    return this.dbQuery(cellId, entity);
+  }
+
+  /**
+   * Get a single record by ID from an entity collection.
+   *
+   * @example
+   * const user = await oncell.cells.dbGetById(cellId, "users", "usr_abc123");
+   */
+  async dbGetById(cellId: string, entity: string, id: string): Promise<Record<string, unknown>> {
+    return this._fetch<Record<string, unknown>>(
+      "POST",
+      `/api/v1/cells/${encodeURIComponent(cellId)}/request`,
+      { method: "db_get_by_id", params: { entity, id } },
+    );
+  }
+
+  /**
+   * Update a record by ID in an entity collection. Merges with existing data.
+   *
+   * @example
+   * await oncell.cells.dbUpdate(cellId, "users", "usr_abc123", { name: "Alice Smith" });
+   */
+  async dbUpdate(cellId: string, entity: string, id: string, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this._fetch<Record<string, unknown>>(
+      "POST",
+      `/api/v1/cells/${encodeURIComponent(cellId)}/request`,
+      { method: "db_update", params: { entity, id, data } },
+    );
+  }
+
+  /**
+   * Delete a record by ID from an entity collection.
+   *
+   * @example
+   * await oncell.cells.dbDeleteRecord(cellId, "users", "usr_abc123");
+   */
+  async dbDeleteRecord(cellId: string, entity: string, id: string): Promise<void> {
+    await this._fetch("POST", `/api/v1/cells/${encodeURIComponent(cellId)}/request`, {
+      method: "db_delete_record",
+      params: { entity, id },
+    });
+  }
+
   // ─── Generic request ───
 
   /**

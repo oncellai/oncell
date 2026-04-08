@@ -1,6 +1,6 @@
 {
   "name": "@oncell/sdk",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "OnCell SDK — REST API client for per-customer isolated compute",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
