@@ -56,7 +56,13 @@ async function handleRequest(
         status = 400;
         result = { error: "missing 'method' in request body" };
       } else {
-        result = await agent.onRequest(cell, body.method, body.params ?? {});
+        // Built-in DB entity CRUD — handled by the runtime, not the agent
+        const dbResult = await handleDbMethod(cell, body.method, body.params ?? {});
+        if (dbResult !== undefined) {
+          result = dbResult;
+        } else {
+          result = await agent.onRequest(cell, body.method, body.params ?? {});
+        }
       }
 
     } else if (url === "/teardown" && req.method === "POST") {
@@ -75,6 +81,123 @@ async function handleRequest(
   const body = JSON.stringify(result);
   res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
   res.end(body);
+}
+
+/**
+ * Built-in DB methods handled by the runtime.
+ * Supports both key-value (db_set/db_get) and entity CRUD (db_create/db_query/etc).
+ * Returns undefined if the method is not a DB method (falls through to agent).
+ */
+async function handleDbMethod(cell: Cell, method: string, params: Record<string, any>): Promise<any | undefined> {
+  switch (method) {
+    // ─── Key-value ───
+    case "db_set":
+      await cell.db.set(params.key, params.value);
+      return { ok: true };
+    case "db_get":
+      return { value: await cell.db.get(params.key) };
+    case "db_delete":
+      await cell.db.delete(params.key);
+      return { ok: true };
+    case "db_keys":
+      return { keys: await cell.db.keys(params.prefix || "") };
+
+    // ─── Entity CRUD ───
+    // Entities are stored as db key "entity:{name}" → JSON array of records
+    case "db_create": {
+      const { entity, data } = params;
+      if (!entity || !data) return { error: "entity and data required" };
+      const key = `entity:${entity}`;
+      const items: any[] = (await cell.db.get(key)) as any[] || [];
+      const record = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        ...data,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      items.push(record);
+      await cell.db.set(key, items);
+      return record;
+    }
+
+    case "db_query": {
+      const { entity, where, limit, offset, orderBy, order } = params;
+      if (!entity) return { error: "entity required" };
+      const key = `entity:${entity}`;
+      let items: any[] = (await cell.db.get(key)) as any[] || [];
+
+      // Filter
+      if (where && typeof where === "object") {
+        items = items.filter((item: any) =>
+          Object.entries(where).every(([k, v]) => item[k] === v)
+        );
+      }
+
+      // Sort
+      if (orderBy) {
+        const dir = order === "desc" ? -1 : 1;
+        items.sort((a: any, b: any) => (a[orderBy] > b[orderBy] ? dir : -dir));
+      }
+
+      const total = items.length;
+      if (offset) items = items.slice(offset);
+      if (limit) items = items.slice(0, limit);
+
+      return { items, total };
+    }
+
+    case "db_get_all": {
+      const { entity } = params;
+      if (!entity) return { error: "entity required" };
+      const items: any[] = (await cell.db.get(`entity:${entity}`)) as any[] || [];
+      return { items, total: items.length };
+    }
+
+    case "db_get_by_id": {
+      const { entity, id } = params;
+      if (!entity || !id) return { error: "entity and id required" };
+      const items: any[] = (await cell.db.get(`entity:${entity}`)) as any[] || [];
+      const record = items.find((r: any) => r.id === id);
+      if (!record) return { error: "not found" };
+      return record;
+    }
+
+    case "db_update": {
+      const { entity, id, data } = params;
+      if (!entity || !id || !data) return { error: "entity, id, and data required" };
+      const key = `entity:${entity}`;
+      const items: any[] = (await cell.db.get(key)) as any[] || [];
+      const idx = items.findIndex((r: any) => r.id === id);
+      if (idx === -1) return { error: "not found" };
+      items[idx] = { ...items[idx], ...data, updatedAt: new Date().toISOString() };
+      await cell.db.set(key, items);
+      return items[idx];
+    }
+
+    case "db_delete_record": {
+      const { entity, id } = params;
+      if (!entity || !id) return { error: "entity and id required" };
+      const key = `entity:${entity}`;
+      const items: any[] = (await cell.db.get(key)) as any[] || [];
+      const idx = items.findIndex((r: any) => r.id === id);
+      if (idx === -1) return { error: "not found" };
+      items.splice(idx, 1);
+      await cell.db.set(key, items);
+      return { ok: true };
+    }
+
+    // ─── File operations ───
+    case "write_file":
+      cell.store.write(params.path, params.content);
+      return { ok: true };
+    case "read_file":
+      return { content: cell.store.read(params.path) };
+    case "list_files":
+      return { files: cell.store.list(params.path) };
+
+    default:
+      return undefined; // Not a built-in method — fall through to agent
+  }
 }
 
 async function main() {
