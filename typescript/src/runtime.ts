@@ -84,13 +84,34 @@ async function handleRequest(
 }
 
 /**
- * Built-in DB methods handled by the runtime.
- * Supports both key-value (db_set/db_get) and entity CRUD (db_create/db_query/etc).
- * Returns undefined if the method is not a DB method (falls through to agent).
+ * Built-in methods handled by the runtime before dispatching to the agent.
+ *
+ * DB entity CRUD (db_create, db_query, etc.) proxies to the cell's own
+ * /api/db HTTP endpoint so that SDK calls and window.db calls in the
+ * generated app share the same .data/db.json storage file.
+ *
+ * Key-value (db_set, db_get) uses cell.db directly (separate .data/cell.json).
+ * File operations use cell.store directly.
+ *
+ * Returns undefined if the method is not built-in (falls through to agent).
  */
+
+// Port of the cell's Next.js app — used for proxying entity CRUD
+const CELL_APP_PORT = process.env.PORT || process.env.CELL_APP_PORT || "3000";
+const CELL_APP_URL = `http://localhost:${CELL_APP_PORT}`;
+
+async function cellDbFetch(method: string, path: string, body?: any): Promise<any> {
+  const res = await fetch(`${CELL_APP_URL}/api/db${path}`, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
+}
+
 async function handleDbMethod(cell: Cell, method: string, params: Record<string, any>): Promise<any | undefined> {
   switch (method) {
-    // ─── Key-value ───
+    // ─── Key-value (uses cell.db — separate storage) ───
     case "db_set":
       await cell.db.set(params.key, params.value);
       return { ok: true };
@@ -102,89 +123,32 @@ async function handleDbMethod(cell: Cell, method: string, params: Record<string,
     case "db_keys":
       return { keys: await cell.db.keys(params.prefix || "") };
 
-    // ─── Entity CRUD ───
-    // Entities are stored as db key "entity:{name}" → JSON array of records
-    case "db_create": {
-      const { entity, data } = params;
-      if (!entity || !data) return { error: "entity and data required" };
-      const key = `entity:${entity}`;
-      const items: any[] = (await cell.db.get(key)) as any[] || [];
-      const record = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ...data,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      items.push(record);
-      await cell.db.set(key, items);
-      return record;
-    }
+    // ─── Entity CRUD (proxies to cell's /api/db → shared db.json) ───
+    case "db_create":
+      return cellDbFetch("POST", "", { entity: params.entity, data: params.data });
 
     case "db_query": {
-      const { entity, where, limit, offset, orderBy, order } = params;
-      if (!entity) return { error: "entity required" };
-      const key = `entity:${entity}`;
-      let items: any[] = (await cell.db.get(key)) as any[] || [];
-
-      // Filter
-      if (where && typeof where === "object") {
-        items = items.filter((item: any) =>
-          Object.entries(where).every(([k, v]) => item[k] === v)
-        );
-      }
-
-      // Sort
-      if (orderBy) {
-        const dir = order === "desc" ? -1 : 1;
-        items.sort((a: any, b: any) => (a[orderBy] > b[orderBy] ? dir : -dir));
-      }
-
-      const total = items.length;
-      if (offset) items = items.slice(offset);
-      if (limit) items = items.slice(0, limit);
-
-      return { items, total };
+      const qs = new URLSearchParams({ entity: params.entity });
+      if (params.where) qs.set("filter", JSON.stringify(params.where));
+      if (params.orderBy) qs.set("sort", params.orderBy);
+      if (params.order) qs.set("order", params.order);
+      if (params.limit) qs.set("limit", String(params.limit));
+      if (params.offset) qs.set("offset", String(params.offset));
+      return cellDbFetch("GET", `?${qs.toString()}`);
     }
 
     case "db_get_all": {
-      const { entity } = params;
-      if (!entity) return { error: "entity required" };
-      const items: any[] = (await cell.db.get(`entity:${entity}`)) as any[] || [];
-      return { items, total: items.length };
+      return cellDbFetch("GET", `?entity=${encodeURIComponent(params.entity)}`);
     }
 
-    case "db_get_by_id": {
-      const { entity, id } = params;
-      if (!entity || !id) return { error: "entity and id required" };
-      const items: any[] = (await cell.db.get(`entity:${entity}`)) as any[] || [];
-      const record = items.find((r: any) => r.id === id);
-      if (!record) return { error: "not found" };
-      return record;
-    }
+    case "db_get_by_id":
+      return cellDbFetch("GET", `?entity=${encodeURIComponent(params.entity)}&id=${encodeURIComponent(params.id)}`);
 
-    case "db_update": {
-      const { entity, id, data } = params;
-      if (!entity || !id || !data) return { error: "entity, id, and data required" };
-      const key = `entity:${entity}`;
-      const items: any[] = (await cell.db.get(key)) as any[] || [];
-      const idx = items.findIndex((r: any) => r.id === id);
-      if (idx === -1) return { error: "not found" };
-      items[idx] = { ...items[idx], ...data, updatedAt: new Date().toISOString() };
-      await cell.db.set(key, items);
-      return items[idx];
-    }
+    case "db_update":
+      return cellDbFetch("PUT", "", { entity: params.entity, id: params.id, data: params.data });
 
-    case "db_delete_record": {
-      const { entity, id } = params;
-      if (!entity || !id) return { error: "entity and id required" };
-      const key = `entity:${entity}`;
-      const items: any[] = (await cell.db.get(key)) as any[] || [];
-      const idx = items.findIndex((r: any) => r.id === id);
-      if (idx === -1) return { error: "not found" };
-      items.splice(idx, 1);
-      await cell.db.set(key, items);
-      return { ok: true };
-    }
+    case "db_delete_record":
+      return cellDbFetch("DELETE", `?entity=${encodeURIComponent(params.entity)}&id=${encodeURIComponent(params.id)}`);
 
     // ─── File operations ───
     case "write_file":
